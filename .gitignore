@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+.env
+.env.*
+.vercel/
+.neon/
+data/
+backup/
+*.db
+*.sqlite
+*.sqlite3
