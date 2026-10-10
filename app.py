@@ -1347,6 +1347,47 @@ def parse_text_rows(text: str, source_name: str = "Input manual") -> list[dict[s
     return list(deduped.values())
 
 
+def migrate_initial_data(payload: dict[str, Any]) -> dict[str, Any]:
+    """One-time bridge used only to copy the existing offline database to Neon."""
+    if not USE_POSTGRES:
+        raise ValueError("Migrasi awal hanya tersedia pada database online.")
+    if payload.get("migration_key") != "find-initial-20261010-ready":
+        raise ValueError("Kunci migrasi tidak sesuai.")
+
+    tables = ("purchase_batches", "barang", "penjualan", "import_log", "audit_log")
+    primary_keys = {"barang": "imei", **{table: "id" for table in tables if table != "barang"}}
+    result: dict[str, int] = {}
+    with db() as con:
+        if con.execute("SELECT COUNT(*) c FROM barang").fetchone()["c"]:
+            raise ValueError("Migrasi awal sudah pernah dijalankan.")
+        for table in tables:
+            rows = payload.get(table) or []
+            if not isinstance(rows, list):
+                raise ValueError(f"Data {table} tidak valid.")
+            allowed_columns = con.table_columns(table)
+            for row in rows:
+                columns = [column for column in row if column in allowed_columns]
+                if not columns:
+                    continue
+                pk = primary_keys[table]
+                updates = [column for column in columns if column != pk]
+                update_sql = ", ".join(f"{column}=EXCLUDED.{column}" for column in updates)
+                sql_text = (
+                    f"INSERT INTO {table} ({', '.join(columns)}) "
+                    f"VALUES ({', '.join('?' for _ in columns)}) "
+                    f"ON CONFLICT ({pk}) DO UPDATE SET {update_sql}"
+                )
+                con.execute(sql_text, [row.get(column) for column in columns])
+            if table != "barang":
+                con.execute(
+                    f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                    f"GREATEST(COALESCE((SELECT MAX(id) FROM {table}), 1), 1), "
+                    f"EXISTS(SELECT 1 FROM {table}))"
+                )
+            result[table] = con.execute(f"SELECT COUNT(*) c FROM {table}").fetchone()["c"]
+    return {"message": "Migrasi awal selesai.", "counts": result}
+
+
 def export_excel(start_date: str = "", end_date: str = "") -> bytes:
     wb = Workbook()
     ws = wb.active
@@ -2659,6 +2700,8 @@ class Handler(BaseHTTPRequestHandler):
                 payload["import_type"] = "DATA_MASUK"
                 result = import_records(records, "Paste manual", payload)
                 self.send_json(result)
+            elif parsed.path == "/api/_migrate-initial":
+                self.send_json(migrate_initial_data(self.read_json()))
             elif parsed.path == "/api/inbound-manual":
                 self.send_json(manual_inbound(self.read_json()))
             elif parsed.path == "/api/sell":
