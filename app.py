@@ -1586,6 +1586,8 @@ HTML = r"""
       .ranking-row { grid-template-columns:28px minmax(0,1fr) auto; gap:8px; padding:10px 2px; }
       .ranking-number { width:25px; height:25px; }
       .report-table-card { padding:12px; }
+      .section-head:not(.report-header) { flex-direction:column; align-items:stretch; }
+      .section-head > .row { width:100%; max-width:none !important; }
       .entry-tabs { display:grid; grid-template-columns:1fr; }
       .entry-tabs button { width:100%; }
       .scan-box { flex-direction:column; }
